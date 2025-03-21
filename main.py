@@ -3,6 +3,8 @@ import time
 import os
 import yaml
 import pathlib
+import warnings
+warnings.filterwarnings("ignore")
 
 import torch
 import torch.nn as nn
@@ -21,7 +23,7 @@ from loss_functions import MILossGaussian, NMI, NCC
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Neural Implicit Function for a single scan.')
-    parser.add_argument('--config', default='config.yaml', help='config file (.yaml) containing the hyper-parameters for training.')
+    parser.add_argument('--config', default='config/config.yaml', help='config file (.yaml) containing the hyper-parameters for training.')
     parser.add_argument('--logging', action='store_true')
     parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[0], help="GPU ID following PCI order.")
 
