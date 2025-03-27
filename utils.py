@@ -46,22 +46,7 @@ class input_mapping(nn.Module):
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
 
 
-def compute_metrics(gt, pred, mask, lpips_loss, device):
-
-    if type(mask) == torch.Tensor:
-        mask = mask.float().cpu().numpy()
-
-    assert mask.max() == 1.0, 'Mask Format incorrect.'
-    assert mask.min() == 0.0, 'Mask Format incorrect.'
-
-    gt -= gt[mask == 1].min()
-    gt /= gt.max()
-    gt *= mask
-
-    pred -= pred[mask == 1].min()
-    pred /= pred.max()
-    pred *= mask
-
+def compute_metrics(gt, pred, lpips_loss, device):
     ssim = structural_similarity(gt, pred, data_range=1)
     psnr = peak_signal_noise_ratio(gt, pred, data_range=1)
 
@@ -94,13 +79,10 @@ def compute_metrics(gt, pred, mask, lpips_loss, device):
     return vals
 
 
-def compute_mi(pred1, pred2, mask, device):
-    if type(mask) == torch.Tensor:
-        mask = mask.float()
-
+def compute_mi(pred1, pred2, device):
     mi_metric = MILossGaussian(num_bins=32).to(device)
-    pred1 = torch.tensor(pred1[mask==1]).to(device).unsqueeze(0).unsqueeze(0)
-    pred2 = torch.tensor(pred2[mask==1]).to(device).unsqueeze(0).unsqueeze(0)
+    pred1 = torch.tensor(pred1).to(device).unsqueeze(0).unsqueeze(0)
+    pred2 = torch.tensor(pred2).to(device).unsqueeze(0).unsqueeze(0)
     
     vals = {}
     vals['mi'] = mi_metric(pred1, pred2)
@@ -122,20 +104,12 @@ def mutual_information(hgram):
 
 
 # from: https://matthew-brett.github.io/teaching/mutual_information.html
-def compute_mi_hist(img1, img2, mask, bins=32):
-
-    if type(mask) == torch.Tensor:
-        mask = mask.float().cpu().numpy()
-
+def compute_mi_hist(img1, img2, bins=32):
     if type(img1) == torch.Tensor():
         img1 = img1.cpu().numpy()
 
     if type(img2)== torch.Tensor():
         img2 = img2.cpu().numpy()  
-
-    # only inside of the brain
-    img1 = img1[mask==1]
-    img2 = img2[mask==1]
 
     hist_2d, _, _= np.histogram2d(
         img1.ravel(),

@@ -1,19 +1,19 @@
 SETTINGS:
-  DIRECTORY: 'C:\Users\janme\Doktorarbeit\Daten\DataSuperresolution' 
+  DIRECTORY: '/projects/crunchie/Jan/Daten/DataSuperresolution' 
   PROJECT_NAME: 'MR-Data'
   GPU_DEVICE: 0
   NUM_WORKERS: 16
 
 DATASET:
   SUBJECT_ID: 'sub-tle001' 
-  LR_CONTRAST1: 'MPM_LR'  
-  LR_CONTRAST2: 'T2starw_LR' 
+  LR_CONTRAST1: 'fmap_LR' #'FA_LR' #'R2starmap_LR' #'MPM_LR'  
+  LR_CONTRAST2: 'MD_LR' #'R1map_LR' #'T2starw_LR' 
 
 TRAINING:
   SEED: 12
-  BATCH_SIZE: 1000
+  BATCH_SIZE: 50000
   LR: 0.0004
-  EPOCHS: 50
+  EPOCHS: 100
   OPTIM: 'Adam'
   SHUFFELING: True
   CONTRAST1_ONLY: False

@@ -3,6 +3,7 @@ import time
 import os
 import yaml
 import pathlib
+import sys
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -227,20 +228,26 @@ def main(args):
                                  shuffle=config.TRAINING.SHUFFELING, 
                                  num_workers=config.SETTINGS.NUM_WORKERS)
 
+    print('Starting training on ', time.strftime("%H:%M:%S", time.localtime()))                             
+
+    model_name = f'{model_name}model.pt'  
+    model_path = os.path.join(weight_dir, model_name)
+    
     for epoch in range(config.TRAINING.EPOCHS):
         # set model to train
         model.train()
         wandb_epoch_dict = {}
 
-        model_name_epoch = f'{model_name}_e{int(epoch)}_model.pt'  
-        model_path = os.path.join(weight_dir, model_name_epoch)
+        sys.stdout.write("\rEpoch {}/{}".format(epoch+1,config.TRAINING.EPOCHS))
+        sys.stdout.flush()
 
-        print(model_path)
+        #print('Epoch ',epoch,'/',config.TRAINING.EPOCHS)
+        #print(model_path)
 
         loss_epoch = 0.0
         start = time.time()
 
-        for batch_idx, (data, labels, segm) in enumerate(train_dataloader):
+        for batch_idx, (data, labels) in enumerate(train_dataloader):
             loss_batch = 0
             wandb_batch_dict = {}
 
@@ -248,14 +255,14 @@ def main(args):
                 contrast1_mask = (labels[:,0] != -1.0)
                 contrast1_labels = labels[contrast1_mask,0]
                 contrast1_labels = contrast1_labels.reshape(-1,1).to(device=device)
-                contrast1_segm = segm[contrast1_mask,:]
                 contrast1_data = data[contrast1_mask,:]
+                #contrast1_data = torch.where(torch.isnan(contrast1_data), torch.zeros_like(contrast1_data), contrast1_data)
                 
                 contrast2_mask = (labels[:,1] != -1.0)
                 contrast2_labels = labels[contrast2_mask,1]
                 contrast2_labels = contrast2_labels.reshape(-1,1).to(device=device)
-                contrast2_segm = segm[contrast2_mask,:]
                 contrast2_data = data[contrast2_mask,:]
+                #contrast2_data = torch.where(torch.isnan(contrast2_data), torch.zeros_like(contrast2_data), contrast2_data)
 
                 data = torch.cat((contrast1_data,contrast2_data), dim=0)
                 labels = torch.cat((contrast1_labels,contrast2_labels), dim=0)
@@ -302,8 +309,8 @@ def main(args):
                     mi_target2 = target[:,1:2]
                     
                 elif config.TRAINING.USE_MI or config.TRAINING.USE_NMI or config.TRAINING.USE_CC:
-                    mi_target1 = target[:len(contrast1_data),1][contrast1_segm.squeeze()]  # contrast2 output for contrast1 coordinate
-                    mi_target2 = target[len(contrast1_data):,0][contrast2_segm.squeeze()]   # contrast1 output for contrast2 coordinate
+                    mi_target1 = target[:len(contrast1_data),1]
+                    mi_target2 = target[len(contrast1_data):,0]
 
             else:
                 # for contrast 1 or contrast 2 only 
@@ -326,15 +333,15 @@ def main(args):
                     if args.logging:
                         wandb_batch_dict.update({'mi_loss': (mi_loss).item()})
                 else:
-                    mi_loss1 = mi_criterion(mi_target1.unsqueeze(0).unsqueeze(0), contrast1_labels[contrast1_segm].unsqueeze(0).unsqueeze(0))
-                    mi_loss2 = mi_criterion(mi_target2.unsqueeze(0).unsqueeze(0), contrast2_labels[contrast2_segm].unsqueeze(0).unsqueeze(0))
+                    mi_loss1 = mi_criterion(mi_target1.unsqueeze(0).unsqueeze(0), contrast1_labels.unsqueeze(0).unsqueeze(0))
+                    mi_loss2 = mi_criterion(mi_target2.unsqueeze(0).unsqueeze(0), contrast2_labels.unsqueeze(0).unsqueeze(0))
                     loss += config.MI_CC.LOSS_MI*(mi_loss1+mi_loss2)
                     if args.logging:
                         wandb_batch_dict.update({'mi_loss': (mi_loss1+mi_loss2).item()})
                         
             if config.TRAINING.USE_CC:
-                cc_loss1 = cc_criterion(mi_target1.unsqueeze(0).unsqueeze(0), contrast1_labels[contrast1_segm].unsqueeze(0).unsqueeze(0))
-                cc_loss2 = cc_criterion(mi_target2.unsqueeze(0).unsqueeze(0), contrast2_labels[contrast2_segm].unsqueeze(0).unsqueeze(0))
+                cc_loss1 = cc_criterion(mi_target1.unsqueeze(0).unsqueeze(0), contrast1_labels.unsqueeze(0).unsqueeze(0))
+                cc_loss2 = cc_criterion(mi_target2.unsqueeze(0).unsqueeze(0), contrast2_labels.unsqueeze(0).unsqueeze(0))
                 loss += config.MI_CC.LOSS_CC*(cc_loss1+cc_loss2)
                 if args.logging:
                     wandb_batch_dict.update({'cc_loss': -(cc_loss1+cc_loss2).item()})
@@ -363,8 +370,7 @@ def main(args):
             wandb_epoch_dict.update({'epoch_loss': loss_epoch})
             wandb_epoch_dict.update({'lr': lr})
 
-        if epoch == (config.TRAINING.EPOCHS -1):
-            torch.save(model.state_dict(), model_path)
+        torch.save({'epoch': epoch,'model_state_dict': model.state_dict()}, model_path)
 
         scheduler.step()
         ################ INFERENCE #######################
@@ -411,7 +417,7 @@ def main(args):
 
             out[batch_idx*5000:(batch_idx*5000 + len(output)),:] = output.cpu().detach().numpy() 
 
-        model_intensities=out
+        model_intensities = out
 
         ################ EVALUATION #######################
 
@@ -431,7 +437,7 @@ def main(args):
             if args.logging:
                 wandb_epoch_dict.update({'inference_time': inference_time})
 
-            print("Generating NIFTIs.")
+            #print("Generating NIFTIs.")
             img_contrast1 = model_intensities_contrast1.reshape((x_dim, y_dim, z_dim))#.cpu().numpy()
             img_contrast2 = model_intensities_contrast2.reshape((x_dim, y_dim, z_dim))#.cpu().numpy()
 
@@ -442,7 +448,7 @@ def main(args):
             gt_contrast1= scaler.fit_transform(gt_contrast1.reshape(-1, 1)).reshape((x_dim, y_dim, z_dim))
 
             label_arr = np.array(gt_contrast2, dtype=np.float32)
-            gt_contrast2= scaler.fit_transform(gt_contrast2.reshape(-1, 1)).reshape((x_dim, y_dim, z_dim))
+            gt_contrast2 = scaler.fit_transform(gt_contrast2.reshape(-1, 1)).reshape((x_dim, y_dim, z_dim))
 
             pred_contrast1 = img_contrast1
             pred_contrast2 = img_contrast2
@@ -454,15 +460,15 @@ def main(args):
             # nib.save(nib.Nifti1Image(gt_contrast1, affine), "gt_contrast1.nii.gz")
             # nib.save(nib.Nifti1Image(gt_contrast2, affine), "gt_contrast2.nii.gz")
 
-            metrics_contrast1 = compute_metrics(gt=gt_contrast1.copy(), pred=pred_contrast1.copy(), mask=dataset.get_contrast1_gt_mask(), lpips_loss=lpips_loss, device=device)
-            metrics_contrast2 = compute_metrics(gt=gt_contrast2.copy(), pred=pred_contrast2.copy(), mask=dataset.get_contrast2_gt_mask(), lpips_loss=lpips_loss, device=device)
+            metrics_contrast1 = compute_metrics(gt=gt_contrast1.copy(), pred=pred_contrast1.copy(), lpips_loss=lpips_loss, device=device)
+            metrics_contrast2 = compute_metrics(gt=gt_contrast2.copy(), pred=pred_contrast2.copy(), lpips_loss=lpips_loss, device=device)
             
-            metrics_mi_true = compute_mi_hist(gt_contrast1.copy(), gt_contrast2.copy(), dataset.get_contrast2_gt_mask(), bins=32)
-            metrics_mi_1 = compute_mi_hist(pred_contrast1.copy(), gt_contrast2.copy(), dataset.get_contrast2_gt_mask(), bins=32)
-            metrics_mi_2 = compute_mi_hist(pred_contrast2.copy(), gt_contrast1.copy(), dataset.get_contrast2_gt_mask(), bins=32)
-            metrics_mi_pred = compute_mi_hist(pred_contrast1.copy(), pred_contrast2.copy(), dataset.get_contrast2_gt_mask(), bins=32)
+            metrics_mi_true = compute_mi_hist(gt_contrast1.copy(), gt_contrast2.copy(), bins=32)
+            metrics_mi_1    = compute_mi_hist(pred_contrast1.copy(), gt_contrast2.copy(), bins=32)
+            metrics_mi_2    = compute_mi_hist(pred_contrast2.copy(), gt_contrast1.copy(), bins=32)
+            metrics_mi_pred = compute_mi_hist(pred_contrast1.copy(), pred_contrast2.copy(), bins=32)
                    
-            metrics_mi_approx = compute_mi(pred_contrast1.copy(), pred_contrast2.copy(), dataset.get_contrast2_gt_mask(),device)
+            metrics_mi_approx = compute_mi(pred_contrast1.copy(), pred_contrast2.copy(), device)
             
             if args.logging:
                 wandb_epoch_dict.update({f'contrast1_ssim': metrics_contrast1["ssim"]})
@@ -482,7 +488,7 @@ def main(args):
 
             # only store the last checkpoint
             if epoch == (config.TRAINING.EPOCHS -1):
-                nib.save(img, os.path.join(image_dir, model_name_epoch.replace("model.pt", f"_ct1.nii.gz")))
+                nib.save(img, os.path.join(image_dir, model_name.replace("model.pt", f"_ct1.nii.gz")))
 
             slice_0 = img_contrast1[int(x_dim/2), :, :]
             slice_1 = img_contrast1[:, int(y_dim/2), :]
@@ -490,7 +496,7 @@ def main(args):
 
             img = nib.Nifti1Image(img_contrast2, affine)
             if epoch == (config.TRAINING.EPOCHS -1):
-                nib.save(img, os.path.join(image_dir, model_name_epoch.replace("model.pt", f"_ct2.nii.gz")))
+                nib.save(img, os.path.join(image_dir, model_name.replace("model.pt", f"_ct2.nii.gz")))
 
             bslice_0 = gt_contrast1[int(x_dim/2), :, :]
             bslice_1 = gt_contrast1[:, int(y_dim/2), :]
@@ -518,7 +524,7 @@ def main(args):
             mi_buffer[1:] = mi_buffer[:-1]  # shifting buffer
             mi_buffer[0] = metrics_mi_pred["mi"]  # update buffer
             curr_mean = np.mean(np.abs(mi_buffer[:-1]-mi_buffer[1:]))  # srtore diff of abs change
-            print("Current buffer: ", mi_buffer, "mean:", curr_mean)
+            #print("Current buffer: ", mi_buffer, "mean:", curr_mean)
 
             if np.abs(curr_mean-mi_mean)<0.0001:
                 if args.early_stopping:
@@ -539,7 +545,7 @@ def main(args):
             if args.logging:
                 wandb_epoch_dict.update({'inference_time': inference_time})
 
-            print("Generating NIFTIs.")
+            #print("Generating NIFTIs.")
             gt_contrast1 = dataset.get_contrast1_gt().reshape((x_dim, y_dim, z_dim)).cpu().numpy()
             gt_contrast2 = dataset.get_contrast2_gt().reshape((x_dim, y_dim, z_dim)).cpu().numpy()
             if config.TRAINING.CONTRAST2_ONLY:
@@ -554,9 +560,9 @@ def main(args):
 
             img = model_intensities.reshape((x_dim, y_dim, z_dim))
             pred = img
-            metrics = compute_metrics(gt=gt.copy(), pred=pred.copy(), mask=dataset.get_contrast1_gt_mask(), lpips_loss=lpips_loss, device=device)
-            metrics_mi_true = compute_mi_hist(gt.copy(), gt_other.copy(), dataset.get_contrast2_gt_mask(), bins=32)
-            metrics_mi = compute_mi_hist(pred.copy(), gt_other.copy(), dataset.get_contrast2_gt_mask(), bins=32)
+            metrics = compute_metrics(gt=gt.copy(), pred=pred.copy(), lpips_loss=lpips_loss, device=device)
+            metrics_mi_true = compute_mi_hist(gt.copy(), gt_other.copy(), bins=32)
+            metrics_mi = compute_mi_hist(pred.copy(), gt_other.copy(), bins=32)
 
             if args.logging:
                 if config.TRAINING.CONTRAST2_ONLY:
@@ -572,9 +578,9 @@ def main(args):
                     wandb_epoch_dict.update({f'MI_error_contrast1': np.abs(metrics_mi["mi"]-metrics_mi_true["mi"])})
 
             if config.TRAINING.CONTRAST2_ONLY:
-                nifti_name = model_name_epoch.replace("model.pt", f"_ct2.nii.gz")
+                nifti_name = model_name.replace("model.pt", f"_ct2.nii.gz")
             else:
-                nifti_name = model_name_epoch.replace("model.pt", f"_ct1.nii.gz")
+                nifti_name = model_name.replace("model.pt", f"_ct1.nii.gz")
 
             slice_0 = img[int(x_dim/2), :, :]
             slice_1 = img[:, int(y_dim/2), :]
@@ -601,6 +607,7 @@ def main(args):
             if args.logging:
                 wandb.log(wandb_epoch_dict)  # update logs per epoch
 
+    print('Finished training on ', time.strftime("%H:%M:%S", time.localtime()))                             
 
 if __name__ == '__main__':
     args = parse_args()
