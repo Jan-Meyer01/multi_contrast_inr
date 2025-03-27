@@ -8,7 +8,16 @@ def zero_pad_nifti_image(input_image_path, output_image_path, image_size_x, imag
 
     # Get the current data and affine
     data = img.get_fdata()
+    data_shape = data.shape
     affine = img.affine
+
+    # check if image needs to be downsized
+    if image_size_x < data.shape[0]:
+        data = data[0:image_size_x,:,:]
+    if image_size_y < data.shape[0]:
+        data = data[:,0:image_size_y,:]
+    if image_size_z < data.shape[0]:
+        data = data[:,:,0:image_size_z]
 
     # Calculate the padding size
     target_shape = (image_size_x, image_size_y, image_size_z)
@@ -16,6 +25,7 @@ def zero_pad_nifti_image(input_image_path, output_image_path, image_size_x, imag
 
     # Zero-pad the data
     padded_data = np.pad(data, pad_size, mode='constant')
+    print('Padded image from ', data_shape, ' to ', padded_data.shape)
 
     # Create a new NIfTI image with the padded data
     padded_img = nib.Nifti1Image(padded_data, affine)
