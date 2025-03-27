@@ -1,10 +1,9 @@
 import nibabel
 import numpy as np
 import torch
-from tqdm import tqdm
-import torch.nn.functional as F
 import nibabel as nib
 from sklearn.preprocessing import MinMaxScaler
+from numpy import inf
 
 # from Tancik et al.:
 # https://github.com/tancik/fourier-feature-networks/blob/master/Experiments/3d_MRI.ipynb
@@ -30,8 +29,7 @@ def norm_grid(grid, xmin, xmax, smin=-1, smax=1):
     return min_max_scale(X=grid, x_min=xmin, x_max=xmax, s_min=smin, s_max=smax)
 
 def get_image_coordinate_grid_nib(image: nibabel.Nifti1Image):
-    
-    scaler = MinMaxScaler()
+    scaler = MinMaxScaler(feature_range=(0,1))
     img_header = image.header
     img_data = image.get_fdata()
     img_affine = image.affine
@@ -49,8 +47,22 @@ def get_image_coordinate_grid_nib(image: nibabel.Nifti1Image):
 
     # convert to numpy array
     coordinates_arr = np.array(coordinates, dtype=np.float32)
+    """
+    # if there are inf values in the array replace them with zero
+    coordinates_arr[coordinates_arr == inf] = 0
+    # same for NaN values
+    coordinates_arr[np.isnan(coordinates_arr)] = 0
+    # and zero out negative values
+    coordinates_arr[coordinates_arr < 0] = 0
+    """
     label_arr = np.array(label, dtype=np.float32)
-
+    # if there are inf values in the array replace them with zero
+    label_arr[label_arr == inf] = 0
+    # same for NaN values
+    label_arr[np.isnan(label_arr)] = 0
+    # and zero out negative values
+    label_arr[label_arr < 0] = 0
+    
     def min_max_scale(X, s_min, s_max):
         x_min, x_max = X.min(), X.max()
         return (X - x_min)/(x_max - x_min)*(s_max - s_min) + s_min
